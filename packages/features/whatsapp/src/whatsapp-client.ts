@@ -380,12 +380,24 @@ export class WhatsAppClient {
         console.log('Mock WhatsApp client initialized');
         // Simulate QR code generation
         setTimeout(() => {
-          this.stateManager.setState('waiting_qr', { qr: 'MOCK_QR_CODE_FOR_DEVELOPMENT' });
+          this.stateManager.setState('waiting_qr');
+          // Emit QR generated event
+          this.emitMockConnectionEvent({
+            type: 'qr_generated',
+            qr: 'MOCK_QR_CODE_FOR_DEVELOPMENT_' + Date.now(),
+            user_id: 'mock_user',
+            timestamp: Date.now()
+          });
         }, 1000);
         
         // Simulate authentication after a delay
         setTimeout(() => {
           this.stateManager.setState('pairing');
+          this.emitMockConnectionEvent({
+            type: 'authenticated',
+            user_id: 'mock_user',
+            timestamp: Date.now()
+          });
           setTimeout(() => {
             this.stateManager.setState('connected');
             this.isConnecting = false;
@@ -423,6 +435,19 @@ export class WhatsAppClient {
     };
     
     return mockClient;
+  }
+
+  /**
+   * Emit mock connection events for development
+   */
+  private emitMockConnectionEvent(event: any): void {
+    this.eventListeners.forEach(callback => {
+      try {
+        callback(event);
+      } catch (error) {
+        console.error('Error in mock event listener:', error);
+      }
+    });
   }
 
   private mockEventListeners?: Map<string, Function[]>;
