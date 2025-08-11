@@ -39,6 +39,7 @@
     "@kit/next": "workspace:*",
     "@kit/supabase": "workspace:*",
     "@kit/ui": "workspace:*",
+    "@kit/whatsapp": "workspace:*",
     "@makerkit/data-loader-supabase-core": "^0.0.10",
     "@makerkit/data-loader-supabase-nextjs": "^1.2.5",
     "@marsidev/react-turnstile": "^1.1.0",

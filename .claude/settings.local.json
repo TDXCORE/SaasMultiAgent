@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker:*)",
+      "Bash(pnpm:*)",
+      "WebFetch(domain:chatbotmicroservicio.onrender.com)",
+      "WebFetch(domain:chatbotmicroservicio.onrender.com)",
+      "Bash(rm:*)"
+    ],
+    "deny": []
+  }
+}

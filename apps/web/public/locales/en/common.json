@@ -63,7 +63,8 @@
     "dashboard": "Dashboard",
     "settings": "Settings",
     "profile": "Profile",
-    "application": "Application"
+    "application": "Application",
+    "whatsapp": "WhatsApp QR"
   },
   "roles": {
     "owner": {
