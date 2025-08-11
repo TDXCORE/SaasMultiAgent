@@ -47,12 +47,12 @@ export async function POST(request: NextRequest) {
       },
       connection: {
         takeoverOnConflict: false,
-        takeoverTimeoutMs: 30000,
-        qrMaxRetries: 3,
-        authTimeoutMs: 60000,
-        reconnectIntervalMs: 5000,
-        heartbeatIntervalMs: 30000,
-        maxReconnectAttempts: 5
+        takeoverTimeoutMs: 60000, // Increased for production
+        qrMaxRetries: 5, // More retries
+        authTimeoutMs: 120000, // Increased to 2 minutes
+        reconnectIntervalMs: 10000, // Slower reconnection
+        heartbeatIntervalMs: 60000, // Longer heartbeat
+        maxReconnectAttempts: 3 // Fewer attempts to avoid resource exhaustion
       },
       logger: {
         level: 'info',
@@ -76,7 +76,7 @@ export async function POST(request: NextRequest) {
     const qrPromise = new Promise<string>((resolve, reject) => {
       const timeout = setTimeout(() => {
         reject(new Error('QR code generation timeout'));
-      }, 30000);
+      }, 120000); // Increased to 2 minutes for production
 
       client.onConnectionEvent('qr-listener', (event: any) => {
         if (event.type === WHATSAPP_EVENTS.QR_GENERATED) {
