@@ -1,0 +1,163 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { 
+  createWhatsAppClient, 
+  createWhatsAppConfig,
+  WHATSAPP_EVENTS,
+  WhatsAppAuthError,
+  WhatsAppConnectionError
+} from '@kit/whatsapp';
+import { requireUser } from '@kit/supabase/require-user';
+import { getSupabaseServerClient } from '@kit/supabase/server-client';
+import { getClient, setClient, removeClient, hasClient } from '../clients';
+
+export async function POST(request: NextRequest) {
+  try {
+    // Get authenticated user
+    const userResult = await requireUser(getSupabaseServerClient());
+    if (userResult.error) {
+      return NextResponse.json({
+        success: false,
+        error: 'authentication_required',
+        message: 'User authentication required'
+      }, { status: 401 });
+    }
+    const userId = userResult.data.id;
+
+    // Check if client already exists
+    if (hasClient(userId)) {
+      const existingClient = getClient(userId);
+      if (existingClient.isConnected()) {
+        return NextResponse.json({
+          success: true,
+          status: 'already_connected',
+          message: 'WhatsApp is already connected'
+        });
+      }
+      // Clean up existing client if not connected
+      await existingClient.cleanup();
+      removeClient(userId);
+    }
+
+    // Create WhatsApp configuration
+    const config = createWhatsAppConfig('database', {
+      auth: {
+        strategy: 'database',
+        clientId: `whatsapp-${userId}`,
+        restartOnAuthFail: true
+      },
+      connection: {
+        takeoverOnConflict: false,
+        takeoverTimeoutMs: 30000,
+        qrMaxRetries: 3,
+        authTimeoutMs: 60000,
+        reconnectIntervalMs: 5000,
+        heartbeatIntervalMs: 30000,
+        maxReconnectAttempts: 5
+      },
+      logger: {
+        level: 'info',
+        enableConsole: true,
+        enableFile: false
+      }
+    });
+
+    // Create client with Supabase client
+    const supabaseClient = getSupabaseServerClient();
+    const client = createWhatsAppClient(config, userId, supabaseClient);
+
+    // Store client
+    setClient(userId, client);
+
+    // Set up QR code listener
+    let qrCode: string | null = null;
+    let isAuthenticated = false;
+    let connectionError: string | null = null;
+
+    const qrPromise = new Promise<string>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error('QR code generation timeout'));
+      }, 30000);
+
+      client.onConnectionEvent('qr-listener', (event: any) => {
+        if (event.type === WHATSAPP_EVENTS.QR_GENERATED) {
+          clearTimeout(timeout);
+          qrCode = event.qr;
+          resolve(event.qr);
+        }
+      });
+
+      client.onConnectionEvent('auth-listener', (event: any) => {
+        if (event.type === WHATSAPP_EVENTS.AUTHENTICATED) {
+          clearTimeout(timeout);
+          isAuthenticated = true;
+          resolve('authenticated');
+        }
+      });
+
+      client.onConnectionEvent('error-listener', (event: any) => {
+        if (event.type === WHATSAPP_EVENTS.ERROR) {
+          clearTimeout(timeout);
+          connectionError = event.error?.message || 'Unknown error';
+          reject(new Error(connectionError || 'Unknown error'));
+        }
+      });
+    });
+
+    // Initialize and connect
+    await client.initialize();
+    await client.connect();
+
+    // Wait for QR code or authentication
+    try {
+      const result = await qrPromise;
+      
+      if (result === 'authenticated') {
+        return NextResponse.json({
+          success: true,
+          status: 'authenticated',
+          message: 'WhatsApp authenticated successfully'
+        });
+      } else {
+        return NextResponse.json({
+          success: true,
+          status: 'qr_generated',
+          qr: result,
+          message: 'QR code generated. Please scan with WhatsApp.'
+        });
+      }
+    } catch (error) {
+      // Clean up on error
+      await client.cleanup();
+      removeClient(userId);
+      
+      if (error instanceof WhatsAppAuthError) {
+        return NextResponse.json({
+          success: false,
+          error: 'authentication_failed',
+          message: `Authentication failed: ${error.code}`
+        }, { status: 400 });
+      } else if (error instanceof WhatsAppConnectionError) {
+        return NextResponse.json({
+          success: false,
+          error: 'connection_failed',
+          message: `Connection failed: ${error.code}`,
+          recoverable: error.recoverable
+        }, { status: 400 });
+      } else {
+        return NextResponse.json({
+          success: false,
+          error: 'unknown_error',
+          message: error instanceof Error ? error.message : 'Unknown error occurred'
+        }, { status: 500 });
+      }
+    }
+
+  } catch (error) {
+    console.error('WhatsApp connect error:', error);
+    return NextResponse.json({
+      success: false,
+      error: 'server_error',
+      message: 'Internal server error'
+    }, { status: 500 });
+  }
+}

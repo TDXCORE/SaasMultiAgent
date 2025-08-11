@@ -5,23 +5,22 @@ import { LogOut, MessageCircle, TrendingUp } from 'lucide-react';
 import { Button } from '@kit/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@kit/ui/card';
 
-import { useWhatsAppStats } from '../hooks';
 import { WhatsAppStatsCard } from './whatsapp-stats-card';
 
 interface WhatsAppSessionManagerProps {
-  userId: string;
   phoneNumber?: string | null;
   onDisconnect: () => void;
   isDisconnecting?: boolean;
 }
 
 export function WhatsAppSessionManager({ 
-  userId,
   phoneNumber, 
   onDisconnect, 
   isDisconnecting = false 
 }: WhatsAppSessionManagerProps) {
-  const { data: stats, isLoading: statsLoading } = useWhatsAppStats(userId, true);
+  // For now, we'll disable stats until we implement them properly
+  const stats = null;
+  const statsLoading = false;
 
   return (
     <div className="space-y-6">

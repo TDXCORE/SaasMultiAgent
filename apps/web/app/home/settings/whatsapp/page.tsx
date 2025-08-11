@@ -17,12 +17,13 @@ export const generateMetadata = async () => {
 };
 
 function WhatsAppSettingsPage() {
-  const user = use(requireUserInServerComponent());
+  // User authentication is now handled by the API routes
+  use(requireUserInServerComponent());
 
   return (
     <PageBody>
       <div className={'flex w-full flex-1 flex-col'}>
-        <WhatsAppQrContainer userId={user.id} />
+        <WhatsAppQrContainer />
       </div>
     </PageBody>
   );

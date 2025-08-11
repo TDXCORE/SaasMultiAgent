@@ -12,11 +12,10 @@ import { WhatsAppSessionManager } from './whatsapp-session-manager';
 import { WhatsAppStatusIndicator } from './whatsapp-status-indicator';
 
 interface WhatsAppQrContainerProps {
-  userId: string;
   className?: string;
 }
 
-export function WhatsAppQrContainer({ userId, className }: WhatsAppQrContainerProps) {
+export function WhatsAppQrContainer({ className }: WhatsAppQrContainerProps) {
   const {
     status,
     qrCode,
@@ -26,7 +25,7 @@ export function WhatsAppQrContainer({ userId, className }: WhatsAppQrContainerPr
     connect,
     disconnect,
     refreshStatus,
-  } = useWhatsAppConnection(userId);
+  } = useWhatsAppConnection();
 
   const renderContent = () => {
     switch (status) {
@@ -108,7 +107,6 @@ export function WhatsAppQrContainer({ userId, className }: WhatsAppQrContainerPr
       case 'connected':
         return (
           <WhatsAppSessionManager
-            userId={userId}
             phoneNumber={phoneNumber}
             onDisconnect={disconnect}
           />

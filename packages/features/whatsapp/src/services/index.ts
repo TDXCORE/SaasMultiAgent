@@ -1,7 +1,7 @@
 import { WhatsAppApiResponse, WhatsAppSession, WhatsAppStats } from '../types';
 
 class WhatsAppApiService {
-  private baseUrl = 'https://chatbotmicroservicio.onrender.com';
+  private baseUrl = '/api/whatsapp';
 
   private async request<T>(
     endpoint: string,
@@ -35,49 +35,28 @@ class WhatsAppApiService {
     }
   }
 
-  async getConnectionStatus(userId: string) {
-    return this.request<{ status: string; connected: boolean; phone?: string }>(
-      `/whatsapp/status/${userId}`
+  async getConnectionStatus() {
+    return this.request<{ status: string; connected: boolean; stats?: any }>(
+      `/status`
     );
   }
 
-  async initializeConnection(userId: string) {
-    return this.request<{ session_id: string }>(
-      `/whatsapp/init/${userId}`,
+  async initializeConnection() {
+    return this.request<{ status: string; qr?: string; message: string }>(
+      `/connect`,
       { method: 'POST' }
     );
   }
 
-  async getQrCode(userId: string) {
-    return this.request<{ qr: string }>(
-      `/whatsapp/qr/${userId}`
-    );
-  }
-
-  async disconnectSession(userId: string) {
-    return this.request<{ message: string }>(
-      `/whatsapp/disconnect/${userId}`,
+  async disconnectSession() {
+    return this.request<{ status: string; message: string }>(
+      `/disconnect`,
       { method: 'POST' }
-    );
-  }
-
-  async getStats(userId: string) {
-    return this.request<WhatsAppStats>(
-      `/whatsapp/stats/${userId}`
     );
   }
 
   async getHealthCheck() {
     return this.request('/health');
-  }
-
-  createWebSocketConnection(userId: string): WebSocket | null {
-    if (typeof window === 'undefined') {
-      return null;
-    }
-
-    const wsUrl = this.baseUrl.replace('https://', 'wss://').replace('http://', 'ws://');
-    return new WebSocket(`${wsUrl}/ws/${userId}`);
   }
 }
 
