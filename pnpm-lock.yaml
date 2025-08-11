@@ -107,6 +107,9 @@ importers:
       next-themes:
         specifier: 0.4.6
         version: 0.4.6(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
+      puppeteer:
+        specifier: ^23.0.0
+        version: 23.11.1(typescript@5.8.3)
       react:
         specifier: 19.1.0
         version: 19.1.0
@@ -128,6 +131,9 @@ importers:
       tailwind-merge:
         specifier: ^3.3.0
         version: 3.3.0
+      whatsapp-web.js:
+        specifier: ^1.32.0
+        version: 1.32.0
       zod:
         specifier: ^3.25.32
         version: 3.25.32
