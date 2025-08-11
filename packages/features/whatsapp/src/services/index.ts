@@ -24,11 +24,13 @@ class WhatsAppApiService {
       return {
         success: true,
         data,
+        timestamp: Date.now(),
       };
     } catch (error) {
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: Date.now(),
       };
     }
   }
