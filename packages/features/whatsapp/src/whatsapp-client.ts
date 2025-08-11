@@ -1,4 +1,4 @@
-// Optional import - will be available when whatsapp-web.js is installed
+// Types for whatsapp-web.js since they don't have official types
 type Client = any;
 import { BaseAuthStrategy, AuthStrategyFactory } from './auth';
 import { ConnectionStateManager, ReconnectionManager } from './connection';
@@ -59,36 +59,38 @@ export class WhatsAppClient {
       // Initialize authentication strategy
       await this.authStrategy.initialize();
       
-      // Create WhatsApp client instance
-      // This will be dynamically imported when whatsapp-web.js is available
+      // Import and create real WhatsApp client
       try {
-        // Try to import whatsapp-web.js dynamically
-        let whatsappModule: any = null;
-        try {
-          // Use eval to avoid TypeScript checking the import at compile time
-          whatsappModule = await eval('import("whatsapp-web.js")');
-        } catch (importError) {
-          console.warn('whatsapp-web.js not available, using mock client for development');
-        }
+        // Import whatsapp-web.js dynamically using eval to avoid TypeScript compile-time checks
+        const whatsappModule = await eval('import("whatsapp-web.js")');
+        const WhatsAppClient = whatsappModule.Client;
         
-        if (!whatsappModule) {
-          console.warn('whatsapp-web.js not found. Creating mock client for development.');
-          // Create a mock client for development/testing
-          this.client = this.createMockClient();
-        } else {
-          const { Client: WhatsAppClient } = whatsappModule;
-          this.client = new WhatsAppClient({
-            authStrategy: this.authStrategy as any, // Type assertion for whatsapp-web.js compatibility
-            puppeteer: this.config.puppeteer || {
-              headless: true,
-              args: ['--no-sandbox', '--disable-setuid-sandbox']
-            },
-            qrMaxRetries: this.config.connection.maxReconnectAttempts
-          });
-        }
+        this.client = new WhatsAppClient({
+          authStrategy: this.authStrategy as any,
+          puppeteer: this.config.puppeteer || {
+            headless: true,
+            args: [
+              '--no-sandbox',
+              '--disable-setuid-sandbox',
+              '--disable-dev-shm-usage',
+              '--disable-accelerated-2d-canvas',
+              '--no-first-run',
+              '--no-zygote',
+              '--single-process',
+              '--disable-gpu'
+            ]
+          },
+          qrMaxRetries: this.config.connection.qrMaxRetries || 5
+        });
+        
+        console.log('Real WhatsApp client created successfully');
       } catch (importError) {
-        console.warn('Failed to import whatsapp-web.js, using mock client:', importError);
-        this.client = this.createMockClient();
+        console.error('Failed to import whatsapp-web.js. Please install it:', importError);
+        throw new WhatsAppAuthError(
+          'whatsapp-web.js is not installed. Please run: npm install whatsapp-web.js',
+          'MISSING_DEPENDENCY',
+          importError
+        );
       }
 
       this.setupClientEventHandlers();
@@ -371,86 +373,6 @@ export class WhatsAppClient {
     });
   }
 
-  /**
-   * Create a mock client for development/testing when whatsapp-web.js is not available
-   */
-  private createMockClient(): any {
-    const mockClient = {
-      initialize: async () => {
-        console.log('Mock WhatsApp client initialized');
-        // Simulate QR code generation
-        setTimeout(() => {
-          this.stateManager.setState('waiting_qr');
-          // Emit QR generated event
-          this.emitMockConnectionEvent({
-            type: 'qr_generated',
-            qr: 'MOCK_QR_CODE_FOR_DEVELOPMENT_' + Date.now(),
-            user_id: 'mock_user',
-            timestamp: Date.now()
-          });
-        }, 1000);
-        
-        // Simulate authentication after a delay
-        setTimeout(() => {
-          this.stateManager.setState('pairing');
-          this.emitMockConnectionEvent({
-            type: 'authenticated',
-            user_id: 'mock_user',
-            timestamp: Date.now()
-          });
-          setTimeout(() => {
-            this.stateManager.setState('connected');
-            this.isConnecting = false;
-            this.reconnectionManager.reset();
-          }, 2000);
-        }, 3000);
-      },
-      
-      destroy: async () => {
-        console.log('Mock WhatsApp client destroyed');
-      },
-      
-      sendMessage: async (to: string, content: any, options?: any) => {
-        console.log(`Mock: Sending message to ${to}:`, content);
-        return { id: `mock_${Date.now()}_${Math.random().toString(36).substr(2, 9)}` };
-      },
-      
-      on: (event: string, callback: Function) => {
-        console.log(`Mock: Registered event listener for ${event}`);
-        // Store event listeners for potential mock triggering
-        if (!this.mockEventListeners) {
-          this.mockEventListeners = new Map();
-        }
-        if (!this.mockEventListeners.has(event)) {
-          this.mockEventListeners.set(event, []);
-        }
-        this.mockEventListeners.get(event)!.push(callback);
-      },
-      
-      // Mock properties
-      info: {
-        wid: 'mock_user@c.us',
-        pushname: 'Mock User'
-      }
-    };
-    
-    return mockClient;
-  }
-
-  /**
-   * Emit mock connection events for development
-   */
-  private emitMockConnectionEvent(event: any): void {
-    this.eventListeners.forEach(callback => {
-      try {
-        callback(event);
-      } catch (error) {
-        console.error('Error in mock event listener:', error);
-      }
-    });
-  }
-
-  private mockEventListeners?: Map<string, Function[]>;
 
   /**
    * Setup WhatsApp client event handlers
@@ -460,7 +382,25 @@ export class WhatsAppClient {
 
     this.client.on('qr', (qr: string) => {
       console.log('QR Code received');
-      this.stateManager.setState('waiting_qr', { qr });
+      this.stateManager.setState('waiting_qr');
+      
+      // Emit the qr_generated event that the connect route expects
+      const qrEvent: WhatsAppConnectionEvent = {
+        type: 'qr_generated',
+        qr,
+        user_id: 'user', // Will be set properly by the route
+        timestamp: Date.now(),
+        data: { qr }
+      };
+      
+      // Notify all event listeners
+      this.eventListeners.forEach(callback => {
+        try {
+          callback(qrEvent);
+        } catch (error) {
+          console.error('Error in QR event listener:', error);
+        }
+      });
     });
 
     this.client.on('ready', () => {
@@ -473,12 +413,46 @@ export class WhatsAppClient {
     this.client.on('authenticated', () => {
       console.log('WhatsApp client authenticated');
       this.stateManager.setState('pairing');
+      
+      // Emit the authenticated event that the connect route expects
+      const authEvent: WhatsAppConnectionEvent = {
+        type: 'authenticated',
+        user_id: 'user', // Will be set properly by the route
+        timestamp: Date.now()
+      };
+      
+      // Notify all event listeners
+      this.eventListeners.forEach(callback => {
+        try {
+          callback(authEvent);
+        } catch (error) {
+          console.error('Error in auth event listener:', error);
+        }
+      });
     });
 
     this.client.on('auth_failure', (msg: string) => {
       console.error('Authentication failed:', msg);
       this.stateManager.setState('error');
       this.isConnecting = false;
+      
+      // Emit the error event that the connect route expects
+      const errorEvent: WhatsAppConnectionEvent = {
+        type: 'error',
+        error: msg,
+        user_id: 'user', // Will be set properly by the route
+        timestamp: Date.now(),
+        data: { message: msg }
+      };
+      
+      // Notify all event listeners
+      this.eventListeners.forEach(callback => {
+        try {
+          callback(errorEvent);
+        } catch (error) {
+          console.error('Error in error event listener:', error);
+        }
+      });
     });
 
     this.client.on('disconnected', (reason: string) => {
