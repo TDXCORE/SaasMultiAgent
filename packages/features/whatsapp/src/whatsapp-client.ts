@@ -82,22 +82,53 @@ export class WhatsAppClient {
         }
 
         console.log('Creating WhatsApp client with auth strategy:', waAuthStrategy ? 'LocalAuth' : 'none');
+        
+        // Production-optimized Puppeteer configuration
+        const puppeteerConfig = {
+          headless: true,
+          args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--no-first-run',
+            '--no-zygote',
+            '--single-process',
+            '--disable-gpu',
+            '--disable-web-security',
+            '--disable-features=VizDisplayCompositor',
+            '--disable-background-timer-throttling',
+            '--disable-backgrounding-occluded-windows',
+            '--disable-renderer-backgrounding',
+            '--disable-field-trial-config',
+            '--disable-back-forward-cache',
+            '--disable-ipc-flooding-protection',
+            '--memory-pressure-off',
+            '--max_old_space_size=4096',
+            '--disable-extensions',
+            '--disable-default-apps',
+            '--disable-sync',
+            '--disable-translate',
+            '--hide-scrollbars',
+            '--mute-audio',
+            '--no-default-browser-check',
+            '--no-pings',
+            '--window-size=1366,768'
+          ],
+          defaultViewport: { width: 1366, height: 768 },
+          ignoreHTTPSErrors: true,
+          ignoreDefaultArgs: ['--disable-extensions'],
+          ...this.config.puppeteer
+        };
+
         this.client = new WhatsAppClient({
           authStrategy: waAuthStrategy,
-          puppeteer: this.config.puppeteer || {
-            headless: true,
-            args: [
-              '--no-sandbox',
-              '--disable-setuid-sandbox',
-              '--disable-dev-shm-usage',
-              '--disable-accelerated-2d-canvas',
-              '--no-first-run',
-              '--no-zygote',
-              '--single-process',
-              '--disable-gpu'
-            ]
-          },
-          qrMaxRetries: this.config.connection.qrMaxRetries || 5
+          puppeteer: puppeteerConfig,
+          qrMaxRetries: this.config.connection.qrMaxRetries || 5,
+          authTimeoutMs: this.config.connection.authTimeoutMs || 180000, // 3 minutes
+          takeoverOnConflict: this.config.connection.takeoverOnConflict || false,
+          takeoverTimeoutMs: this.config.connection.takeoverTimeoutMs || 60000,
+          userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         });
         
         console.log('Real WhatsApp client created successfully');

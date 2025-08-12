@@ -86,6 +86,12 @@ export class ConnectionStateManager {
    * Set new connection state with validation
    */
   setState(newState: WhatsAppStatus, eventData?: any): boolean {
+    // Prevent duplicate state transitions
+    if (this.currentState === newState) {
+      console.log(`State is already ${newState}, skipping transition`);
+      return true;
+    }
+
     if (!this.canTransitionTo(newState)) {
       console.warn(`Invalid state transition from ${this.currentState} to ${newState}`);
       return false;

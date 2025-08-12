@@ -1,150 +1,186 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { 
-  WHATSAPP_EVENTS
-} from '@kit/whatsapp';
 import { requireUser } from '@kit/supabase/require-user';
 import { getSupabaseServerClient } from '@kit/supabase/server-client';
-import { getClient, hasClient } from '../clients';
+import { getClient } from '../clients';
 
 export async function GET(request: NextRequest) {
   try {
     console.log('WhatsApp QR stream route called');
     
     // Get authenticated user
-    const userResult = await requireUser(getSupabaseServerClient());
-    if (userResult.error) {
+    const supabase = getSupabaseServerClient();
+    const userResult = await requireUser(supabase);
+    
+    // Handle different return types from requireUser
+    if ('error' in userResult && userResult.error) {
       return NextResponse.json({
         success: false,
         error: 'authentication_required',
         message: 'User authentication required'
       }, { status: 401 });
     }
-    const userId = userResult.data.id;
+    
+    // Extract user ID safely
+    const user = 'data' in userResult ? userResult.data : userResult;
+    const userId = user.id;
 
     // Check if client exists
-    if (!hasClient(userId)) {
+    const client = getClient(userId);
+    if (!client) {
       return NextResponse.json({
         success: false,
         error: 'no_client',
-        message: 'No WhatsApp client found. Please connect first.'
+        message: 'No WhatsApp client found'
       }, { status: 404 });
     }
 
-    const client = getClient(userId);
-
-    // Create SSE response
-    const responseStream = new TransformStream();
-    const writer = responseStream.writable.getWriter();
+    // Set up Server-Sent Events
     const encoder = new TextEncoder();
+    let isConnectionClosed = false;
+    
+    const stream = new ReadableStream({
+      start(controller) {
+        console.log('SSE stream started for user:', userId);
+        
+        // Send initial connection message
+        const initialData = `data: ${JSON.stringify({
+          type: 'connected',
+          timestamp: new Date().toISOString()
+        })}\n\n`;
+        controller.enqueue(encoder.encode(initialData));
 
-    // Send initial connection message
-    const sendMessage = (data: any) => {
-      const message = `data: ${JSON.stringify(data)}\n\n`;
-      writer.write(encoder.encode(message));
-    };
+        // Check for existing QR code
+        try {
+          const connectionStatus = client.getConnectionStatus();
+          if (connectionStatus.qrCode) {
+            console.log('Sending existing QR code via SSE');
+            const qrData = `data: ${JSON.stringify({
+              type: 'qr',
+              qr: connectionStatus.qrCode,
+              timestamp: new Date().toISOString()
+            })}\n\n`;
+            controller.enqueue(encoder.encode(qrData));
+          }
+        } catch (error) {
+          console.error('Error getting existing QR code:', error);
+        }
 
-    // Send heartbeat to keep connection alive (every 10s for Render.com)
-    const heartbeat = setInterval(() => {
-      sendMessage({ type: 'heartbeat', ts: Date.now() });
-    }, 10000);
+        // QR code debouncing
+        let lastQrTime = 0;
+        const QR_DEBOUNCE_MS = 3000; // 3 second debounce for SSE
+        
+        // Set up event listeners
+        const qrListener = (event: any) => {
+          if (isConnectionClosed) return;
+          
+          const now = Date.now();
+          
+          // Debounce QR code events
+          if (now - lastQrTime < QR_DEBOUNCE_MS) {
+            console.log('QR code SSE event debounced');
+            return;
+          }
+          
+          lastQrTime = now;
+          
+          try {
+            console.log('Sending QR code via SSE:', event.qr?.substring(0, 20) + '...');
+            const data = `data: ${JSON.stringify({
+              type: 'qr',
+              qr: event.qr,
+              timestamp: new Date().toISOString()
+            })}\n\n`;
+            controller.enqueue(encoder.encode(data));
+          } catch (error) {
+            console.error('Error sending QR via SSE:', error);
+          }
+        };
 
-    // Listen for QR code events
-    const qrListener = (event: any) => {
-      if (event.type === WHATSAPP_EVENTS.QR_GENERATED) {
-        console.log('Sending QR code via SSE:', event.qr?.substring(0, 20) + '...');
-        sendMessage({
-          type: 'qr_code',
-          qr: event.qr,
-          timestamp: Date.now()
-        });
+        const authListener = (event: any) => {
+          if (isConnectionClosed) return;
+          
+          try {
+            const data = `data: ${JSON.stringify({
+              type: 'authenticated',
+              timestamp: new Date().toISOString()
+            })}\n\n`;
+            controller.enqueue(encoder.encode(data));
+            
+            // Close stream after authentication
+            setTimeout(() => {
+              if (!isConnectionClosed) {
+                controller.close();
+              }
+            }, 1000);
+          } catch (error) {
+            console.error('Error sending auth event via SSE:', error);
+          }
+        };
+
+        const errorListener = (event: any) => {
+          if (isConnectionClosed) return;
+          
+          try {
+            const data = `data: ${JSON.stringify({
+              type: 'error',
+              error: event.error?.message || 'Unknown error',
+              timestamp: new Date().toISOString()
+            })}\n\n`;
+            controller.enqueue(encoder.encode(data));
+          } catch (error) {
+            console.error('Error sending error event via SSE:', error);
+          }
+        };
+
+        // Register listeners
+        client.onConnectionEvent('qr-sse-listener', qrListener);
+        client.onConnectionEvent('auth-sse-listener', authListener);
+        client.onConnectionEvent('error-sse-listener', errorListener);
+
+        // Cleanup function
+        const cleanup = () => {
+          if (isConnectionClosed) return;
+          isConnectionClosed = true;
+          
+          console.log('QR stream client disconnected');
+          
+          // Remove event listeners
+          try {
+            client.offConnectionEvent('qr-sse-listener');
+            client.offConnectionEvent('auth-sse-listener');
+            client.offConnectionEvent('error-sse-listener');
+          } catch (error) {
+            console.error('Error removing SSE listeners:', error);
+          }
+        };
+
+        // Set up cleanup on stream close
+        request.signal.addEventListener('abort', cleanup);
+        
+        // Auto-cleanup after 5 minutes
+        setTimeout(() => {
+          if (!isConnectionClosed) {
+            cleanup();
+            controller.close();
+          }
+        }, 5 * 60 * 1000);
+      },
+      
+      cancel() {
+        isConnectionClosed = true;
+        console.log('QR stream cancelled');
       }
-    };
-
-    // Listen for state changes
-    const stateListener = (event: any) => {
-      if (event.type === WHATSAPP_EVENTS.STATE_CHANGED) {
-        console.log('Sending state change via SSE:', event.state);
-        sendMessage({
-          type: 'state_change',
-          state: event.state,
-          timestamp: Date.now()
-        });
-      }
-    };
-
-    // Listen for authentication
-    const authListener = (event: any) => {
-      if (event.type === WHATSAPP_EVENTS.AUTHENTICATED) {
-        console.log('Sending authentication success via SSE');
-        sendMessage({
-          type: 'authenticated',
-          timestamp: Date.now()
-        });
-      }
-    };
-
-    // Listen for errors
-    const errorListener = (event: any) => {
-      if (event.type === WHATSAPP_EVENTS.ERROR) {
-        console.log('Sending error via SSE:', event.error?.message);
-        sendMessage({
-          type: 'error',
-          error: event.error?.message || 'Unknown error',
-          timestamp: Date.now()
-        });
-      }
-    };
-
-    // Register event listeners
-    client.onConnectionEvent('qr-stream-qr', qrListener);
-    client.onConnectionEvent('qr-stream-state', stateListener);
-    client.onConnectionEvent('qr-stream-auth', authListener);
-    client.onConnectionEvent('qr-stream-error', errorListener);
-
-    // Send initial status and current QR if available
-    const currentStatus = client.getConnectionStatus();
-    sendMessage({
-      type: 'connected',
-      message: 'QR stream connected',
-      currentState: currentStatus.state,
-      timestamp: Date.now()
     });
 
-    // If there's a current QR code, send it immediately
-    if (currentStatus.state === 'waiting_qr' && currentStatus.qrCode) {
-      console.log('Sending existing QR code via SSE');
-      sendMessage({
-        type: 'qr_code',
-        qr: currentStatus.qrCode,
-        timestamp: Date.now()
-      });
-    }
-
-    // Handle client disconnect
-    request.signal.addEventListener('abort', () => {
-      console.log('QR stream client disconnected');
-      clearInterval(heartbeat);
-      client.offConnectionEvent('qr-stream-qr');
-      client.offConnectionEvent('qr-stream-state');
-      client.offConnectionEvent('qr-stream-auth');
-      client.offConnectionEvent('qr-stream-error');
-      writer.close();
-    });
-
-    return new NextResponse(responseStream.readable, {
+    return new Response(stream, {
       headers: {
         'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache, no-store, must-revalidate',
-        'Pragma': 'no-cache',
-        'Expires': '0',
+        'Cache-Control': 'no-cache',
         'Connection': 'keep-alive',
-        'Content-Encoding': 'none',
-        'X-Accel-Buffering': 'no',
         'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, Cache-Control, Authorization',
-        'Access-Control-Expose-Headers': 'Content-Type',
-      },
+        'Access-Control-Allow-Methods': 'GET',
+        'Access-Control-Allow-Headers': 'Cache-Control'
+      }
     });
 
   } catch (error) {
