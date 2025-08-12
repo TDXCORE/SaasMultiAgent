@@ -37,7 +37,18 @@ export async function POST(request: NextRequest) {
           message: 'WhatsApp is already connected'
         });
       }
-      // Clean up existing client if not connected
+      
+      // If client exists but not connected, check if it's in waiting_qr state
+      const status = existingClient.getConnectionStatus();
+      if (status.state === 'waiting_qr') {
+        return NextResponse.json({
+          success: true,
+          status: 'waiting_for_scan',
+          message: 'WhatsApp QR is ready for scanning. Check the QR stream.'
+        });
+      }
+      
+      // Clean up existing client if not connected and not waiting for QR
       await existingClient.cleanup();
       removeClient(userId);
     }

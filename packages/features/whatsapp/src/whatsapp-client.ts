@@ -187,6 +187,9 @@ export class WhatsAppClient {
       // Stop reconnection attempts
       this.reconnectionManager.stopReconnection();
       
+      // Clear QR code on disconnect
+      this.stateManager.setQrCode(null);
+      
       // Disconnect client
       if (this.client) {
         await this.client.destroy();
@@ -254,6 +257,13 @@ export class WhatsAppClient {
    */
   getStatus(): WhatsAppStatus {
     return this.stateManager.getCurrentState();
+  }
+
+  /**
+   * Get full connection status including QR code
+   */
+  getConnectionStatus(): { state: WhatsAppStatus; qrCode: string | null } {
+    return this.stateManager.getConnectionStatus();
   }
 
   /**
@@ -409,6 +419,7 @@ export class WhatsAppClient {
       console.log('QR Code received from WhatsApp client, length:', qr.length);
       console.log('QR Code preview:', qr.substring(0, 50) + '...');
       this.stateManager.setState('waiting_qr');
+      this.stateManager.setQrCode(qr);
       
       // Emit the qr_generated event that the connect route expects
       const qrEvent: WhatsAppConnectionEvent = {
@@ -441,6 +452,7 @@ export class WhatsAppClient {
     this.client.on('authenticated', () => {
       console.log('WhatsApp client authenticated');
       this.stateManager.setState('pairing');
+      this.stateManager.setQrCode(null); // Clear QR code on authentication
       
       // Emit the authenticated event that the connect route expects
       const authEvent: WhatsAppConnectionEvent = {

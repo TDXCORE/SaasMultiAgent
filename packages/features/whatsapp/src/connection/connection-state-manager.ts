@@ -7,6 +7,7 @@ import { WhatsAppStatus, WhatsAppConnectionEvent } from '../types';
 export class ConnectionStateManager {
   private currentState: WhatsAppStatus = 'disconnected';
   private previousState: WhatsAppStatus = 'disconnected';
+  private currentQrCode: string | null = null;
   private stateHistory: Array<{ state: WhatsAppStatus; timestamp: number }> = [];
   private listeners: Map<string, (state: WhatsAppStatus, previous: WhatsAppStatus) => void> = new Map();
   private eventListeners: Map<string, (event: WhatsAppConnectionEvent) => void> = new Map();
@@ -48,6 +49,30 @@ export class ConnectionStateManager {
    */
   getPreviousState(): WhatsAppStatus {
     return this.previousState;
+  }
+
+  /**
+   * Get current QR code
+   */
+  getCurrentQrCode(): string | null {
+    return this.currentQrCode;
+  }
+
+  /**
+   * Set current QR code
+   */
+  setQrCode(qrCode: string | null): void {
+    this.currentQrCode = qrCode;
+  }
+
+  /**
+   * Get full connection status including QR code
+   */
+  getConnectionStatus(): { state: WhatsAppStatus; qrCode: string | null } {
+    return {
+      state: this.currentState,
+      qrCode: this.currentQrCode
+    };
   }
 
   /**

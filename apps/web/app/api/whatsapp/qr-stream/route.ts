@@ -101,12 +101,24 @@ export async function GET(request: NextRequest) {
     client.onConnectionEvent('qr-stream-auth', authListener);
     client.onConnectionEvent('qr-stream-error', errorListener);
 
-    // Send initial status
+    // Send initial status and current QR if available
+    const currentStatus = client.getConnectionStatus();
     sendMessage({
       type: 'connected',
       message: 'QR stream connected',
+      currentState: currentStatus.state,
       timestamp: Date.now()
     });
+
+    // If there's a current QR code, send it immediately
+    if (currentStatus.state === 'waiting_qr' && currentStatus.qrCode) {
+      console.log('Sending existing QR code via SSE');
+      sendMessage({
+        type: 'qr_code',
+        qr: currentStatus.qrCode,
+        timestamp: Date.now()
+      });
+    }
 
     // Handle client disconnect
     request.signal.addEventListener('abort', () => {

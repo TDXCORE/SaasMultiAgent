@@ -68,6 +68,10 @@ export function useWhatsAppConnection(): UseWhatsAppConnectionReturn {
           setStatus('connected');
           setQrCode(null);
           toast.success('WhatsApp connected successfully!');
+        } else if (response.data.status === 'waiting_for_scan') {
+          setStatus('waiting_qr');
+          toast.info('Connecting to existing session. Please wait...');
+          setupQrStream();
         }
       } else {
         setError(response.error || 'Failed to initialize connection');
