@@ -65,8 +65,22 @@ export class WhatsAppClient {
         const whatsappModule = await eval('import("whatsapp-web.js")');
         const WhatsAppClient = whatsappModule.Client;
         
+        // Create compatible auth strategy for whatsapp-web.js
+        let waAuthStrategy = null;
+        try {
+          // Try to use LocalAuth (most compatible)
+          const { LocalAuth } = whatsappModule;
+          waAuthStrategy = new LocalAuth({
+            clientId: this.config.auth.clientId || 'whatsapp-client'
+          });
+          console.log('Using LocalAuth strategy for WhatsApp');
+        } catch (authError) {
+          console.warn('LocalAuth not available, proceeding without auth strategy');
+          waAuthStrategy = null;
+        }
+
         this.client = new WhatsAppClient({
-          authStrategy: this.authStrategy as any,
+          authStrategy: waAuthStrategy,
           puppeteer: this.config.puppeteer || {
             headless: true,
             args: [
