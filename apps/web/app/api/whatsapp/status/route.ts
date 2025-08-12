@@ -30,11 +30,13 @@ export async function GET(request: NextRequest) {
     // Get connection status and stats
     const isConnected = client.isConnected();
     const stats = client.getConnectionStats();
+    const connectionStatus = client.getConnectionStatus();
 
     return NextResponse.json({
       success: true,
-      status: isConnected ? 'connected' : 'disconnected',
+      status: isConnected ? 'connected' : connectionStatus.state,
       connected: isConnected,
+      qr: connectionStatus.qrCode, // Include QR code for polling fallback
       stats: {
         status: stats.status,
         uptime: stats.uptime,
@@ -42,7 +44,7 @@ export async function GET(request: NextRequest) {
         reconnectionAttempts: stats.reconnectionStatus?.attempts || 0,
         lastError: stats.lastError
       },
-      message: isConnected ? 'WhatsApp is connected' : 'WhatsApp is not connected'
+      message: isConnected ? 'WhatsApp is connected' : `WhatsApp is ${connectionStatus.state}`
     });
 
   } catch (error) {

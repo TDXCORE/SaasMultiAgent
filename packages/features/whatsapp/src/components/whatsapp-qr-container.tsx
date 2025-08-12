@@ -22,6 +22,7 @@ export function WhatsAppQrContainer({ className }: WhatsAppQrContainerProps) {
     phoneNumber,
     isConnecting,
     error,
+    connectionMethod,
     connect,
     disconnect,
     refreshStatus,
@@ -89,16 +90,30 @@ export function WhatsAppQrContainer({ className }: WhatsAppQrContainerProps) {
                 <CardTitle>Scan QR Code</CardTitle>
                 <CardDescription>
                   Use your phone to scan the QR code below
+                  {connectionMethod && (
+                    <div className="mt-2 text-xs text-muted-foreground">
+                      Connection: {connectionMethod === 'sse' ? '🔴 Real-time' : '🔄 Polling backup'}
+                    </div>
+                  )}
                 </CardDescription>
               </CardHeader>
             </Card>
             
             <div className="flex justify-center">
-              {qrCode && (
+              {qrCode ? (
                 <WhatsAppQrDisplay 
                   qrCode={qrCode} 
                   onRefresh={refreshStatus}
                 />
+              ) : (
+                <Card className="w-full max-w-md mx-auto">
+                  <CardContent className="flex flex-col items-center space-y-4 p-8">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                    <p className="text-muted-foreground text-center">
+                      {connectionMethod === 'polling' ? 'Checking for QR code...' : 'Waiting for QR code...'}
+                    </p>
+                  </CardContent>
+                </Card>
               )}
             </div>
           </div>

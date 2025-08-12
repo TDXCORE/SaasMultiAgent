@@ -43,10 +43,10 @@ export async function GET(request: NextRequest) {
       writer.write(encoder.encode(message));
     };
 
-    // Send heartbeat to keep connection alive
+    // Send heartbeat to keep connection alive (every 10s for Render.com)
     const heartbeat = setInterval(() => {
-      sendMessage({ type: 'heartbeat', timestamp: Date.now() });
-    }, 30000);
+      sendMessage({ type: 'heartbeat', ts: Date.now() });
+    }, 10000);
 
     // Listen for QR code events
     const qrListener = (event: any) => {
@@ -134,11 +134,16 @@ export async function GET(request: NextRequest) {
     return new NextResponse(responseStream.readable, {
       headers: {
         'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0',
         'Connection': 'keep-alive',
+        'Content-Encoding': 'none',
+        'X-Accel-Buffering': 'no',
         'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET',
-        'Access-Control-Allow-Headers': 'Cache-Control',
+        'Access-Control-Allow-Methods': 'GET, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Cache-Control, Authorization',
+        'Access-Control-Expose-Headers': 'Content-Type',
       },
     });
 

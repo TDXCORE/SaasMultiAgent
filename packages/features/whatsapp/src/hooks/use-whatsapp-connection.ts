@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import { whatsAppApiService } from '../services';
@@ -12,6 +12,7 @@ interface UseWhatsAppConnectionReturn {
   phoneNumber: string | null;
   isConnecting: boolean;
   error: string | null;
+  connectionMethod: 'sse' | 'polling' | null;
   connect: () => Promise<void>;
   disconnect: () => Promise<void>;
   refreshStatus: () => Promise<void>;
@@ -24,6 +25,11 @@ export function useWhatsAppConnection(): UseWhatsAppConnectionReturn {
   const [isConnecting, setIsConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [eventSource, setEventSource] = useState<EventSource | null>(null);
+  const [connectionMethod, setConnectionMethod] = useState<'sse' | 'polling' | null>(null);
+  
+  // Refs to track intervals and prevent memory leaks
+  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const immediatePollIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -72,6 +78,8 @@ export function useWhatsAppConnection(): UseWhatsAppConnectionReturn {
           setStatus('waiting_qr');
           toast.info('Connecting to existing session. Please wait...');
           setupQrStream();
+          // Also start polling immediately as backup
+          startImmediatePolling();
         }
       } else {
         setError(response.error || 'Failed to initialize connection');
@@ -86,16 +94,75 @@ export function useWhatsAppConnection(): UseWhatsAppConnectionReturn {
     } finally {
       setIsConnecting(false);
     }
+  }, [setupQrStream, startImmediatePolling]);
+
+  const startImmediatePolling = useCallback(() => {
+    console.log('🔍 Starting immediate polling as backup...');
+    setConnectionMethod('polling');
+    
+    // Clear existing interval if any
+    if (immediatePollIntervalRef.current) {
+      clearInterval(immediatePollIntervalRef.current);
+    }
+    
+    immediatePollIntervalRef.current = setInterval(async () => {
+      try {
+        const statusResponse = await whatsAppApiService.getConnectionStatus();
+        if (statusResponse.success && statusResponse.data) {
+          if (statusResponse.data.connected) {
+            setStatus('connected');
+            setQrCode(null);
+            setIsConnecting(false);
+            if (immediatePollIntervalRef.current) {
+              clearInterval(immediatePollIntervalRef.current);
+              immediatePollIntervalRef.current = null;
+            }
+            return;
+          }
+          
+          if (statusResponse.data.qr) {
+            console.log('📱 QR code found via immediate polling');
+            setQrCode(statusResponse.data.qr);
+            setStatus('waiting_qr');
+          }
+        }
+      } catch (error) {
+        console.error('❌ Immediate polling error:', error);
+      }
+    }, 1000); // Poll every second initially
+    
+    // Clean up after 2 minutes
+    setTimeout(() => {
+      if (immediatePollIntervalRef.current) {
+        clearInterval(immediatePollIntervalRef.current);
+        immediatePollIntervalRef.current = null;
+      }
+    }, 120000);
   }, []);
 
   const setupQrStream = useCallback(() => {
+    console.log('🔗 Setting up QR stream connection...');
+    
     // Close existing connection if any
     if (eventSource) {
+      console.log('📤 Closing existing EventSource connection');
       eventSource.close();
     }
     
     const newEventSource = new EventSource('/api/whatsapp/qr-stream');
     setEventSource(newEventSource);
+    
+    // Enhanced debugging
+    newEventSource.addEventListener('open', () => {
+      console.log('✅ SSE connection opened successfully');
+      console.log('Connection details:', {
+        url: newEventSource.url,
+        readyState: newEventSource.readyState,
+        timestamp: new Date().toISOString()
+      });
+      setConnectionMethod('sse');
+      toast.success('Real-time connection established');
+    });
     
     newEventSource.onmessage = (event) => {
       try {
@@ -156,33 +223,82 @@ export function useWhatsAppConnection(): UseWhatsAppConnectionReturn {
     };
     
     newEventSource.onerror = (error) => {
-      console.error('SSE connection error:', error);
+      console.error('❌ SSE connection error occurred:', {
+        error,
+        readyState: newEventSource.readyState,
+        url: newEventSource.url,
+        timestamp: new Date().toISOString()
+      });
+      
+      // Log readyState meanings for debugging  
+      const stateMessages: Record<number, string> = {
+        0: 'CONNECTING',
+        1: 'OPEN', 
+        2: 'CLOSED'
+      };
+      console.log(`SSE ReadyState: ${newEventSource.readyState} (${stateMessages[newEventSource.readyState] || 'UNKNOWN'})`);
+      
       newEventSource.close();
       setEventSource(null);
       
-      // Fallback to polling if SSE fails
-      const pollInterval = setInterval(async () => {
-        const statusResponse = await whatsAppApiService.getConnectionStatus();
-        if (statusResponse.success && statusResponse.data?.connected) {
-          setStatus('connected');
-          setQrCode(null);
-          setIsConnecting(false);
-          clearInterval(pollInterval);
-          toast.success('WhatsApp connected successfully!');
-        }
-      }, 3000);
+      console.log('🔄 SSE failed, falling back to aggressive polling...');
+      setConnectionMethod('polling');
+      toast.warning('Using backup connection method...');
       
-      // Stop polling after 2 minutes
-      setTimeout(() => {
-        clearInterval(pollInterval);
-        if (status === 'waiting_qr') {
+      // Clear existing polling interval
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+      }
+      
+      // More aggressive polling fallback
+      let pollAttempts = 0;
+      const maxPollAttempts = 60; // 2 minutes with 2s intervals
+      
+      pollIntervalRef.current = setInterval(async () => {
+        pollAttempts++;
+        console.log(`🔍 Polling attempt ${pollAttempts}/${maxPollAttempts}`);
+        
+        try {
+          const statusResponse = await whatsAppApiService.getConnectionStatus();
+          console.log('📊 Poll response:', statusResponse);
+          
+          if (statusResponse.success && statusResponse.data) {
+            if (statusResponse.data.connected) {
+              setStatus('connected');
+              setQrCode(null);
+              setIsConnecting(false);
+              if (pollIntervalRef.current) {
+                clearInterval(pollIntervalRef.current);
+                pollIntervalRef.current = null;
+              }
+              toast.success('WhatsApp connected successfully!');
+              return;
+            }
+            
+            // Check if there's a QR code in the response
+            if (statusResponse.data.qr) {
+              console.log('📱 QR code found in poll response');
+              setQrCode(statusResponse.data.qr);
+              setStatus('waiting_qr');
+            }
+          }
+        } catch (pollError) {
+          console.error('❌ Polling error:', pollError);
+        }
+        
+        // Stop polling after max attempts
+        if (pollAttempts >= maxPollAttempts) {
+          if (pollIntervalRef.current) {
+            clearInterval(pollIntervalRef.current);
+            pollIntervalRef.current = null;
+          }
           setIsConnecting(false);
           setError('Connection timeout');
           toast.error('Connection timeout. Please try again.');
         }
-      }, 120000);
+      }, 2000);
     };
-  }, [eventSource, status]);
+  }, []);
 
   const disconnect = useCallback(async () => {
     try {
@@ -192,6 +308,17 @@ export function useWhatsAppConnection(): UseWhatsAppConnectionReturn {
         setEventSource(null);
       }
       
+      // Clear all polling intervals
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+      
+      if (immediatePollIntervalRef.current) {
+        clearInterval(immediatePollIntervalRef.current);
+        immediatePollIntervalRef.current = null;
+      }
+      
       const response = await whatsAppApiService.disconnectSession();
       
       if (response.success) {
@@ -199,6 +326,7 @@ export function useWhatsAppConnection(): UseWhatsAppConnectionReturn {
         setPhoneNumber(null);
         setQrCode(null);
         setError(null);
+        setConnectionMethod(null);
         toast.success('WhatsApp disconnected successfully');
       } else {
         toast.error(response.error || 'Failed to disconnect');
@@ -225,6 +353,13 @@ export function useWhatsAppConnection(): UseWhatsAppConnectionReturn {
       if (eventSource) {
         eventSource.close();
       }
+      // Clean up all polling intervals
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+      }
+      if (immediatePollIntervalRef.current) {
+        clearInterval(immediatePollIntervalRef.current);
+      }
     };
   }, [refreshStatus, status, eventSource]);
 
@@ -234,6 +369,7 @@ export function useWhatsAppConnection(): UseWhatsAppConnectionReturn {
     phoneNumber,
     isConnecting,
     error,
+    connectionMethod,
     connect,
     disconnect,
     refreshStatus,
