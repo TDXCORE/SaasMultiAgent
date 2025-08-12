@@ -94,7 +94,7 @@ export function useWhatsAppConnection(): UseWhatsAppConnectionReturn {
     } finally {
       setIsConnecting(false);
     }
-  }, [setupQrStream, startImmediatePolling]);
+  }, []);
 
   const startImmediatePolling = useCallback(() => {
     console.log('🔍 Starting immediate polling as backup...');

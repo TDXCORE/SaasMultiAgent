@@ -36,7 +36,7 @@ class WhatsAppApiService {
   }
 
   async getConnectionStatus() {
-    return this.request<{ status: string; connected: boolean; stats?: any }>(
+    return this.request<{ status: string; connected: boolean; qr?: string; stats?: any }>(
       `/status`
     );
   }
