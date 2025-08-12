@@ -317,6 +317,14 @@ export class WhatsAppClient {
   }
 
   /**
+   * Remove connection event listener
+   */
+  offConnectionEvent(id: string): void {
+    this.eventListeners.delete(id);
+    this.stateManager.removeEventListener(id);
+  }
+
+  /**
    * Register message event listener
    */
   onMessageEvent(id: string, callback: (event: any, data: any) => void): void {

@@ -23,6 +23,7 @@ export function useWhatsAppConnection(): UseWhatsAppConnectionReturn {
   const [phoneNumber, setPhoneNumber] = useState<string | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [eventSource, setEventSource] = useState<EventSource | null>(null);
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -49,6 +50,7 @@ export function useWhatsAppConnection(): UseWhatsAppConnectionReturn {
   const connect = useCallback(async () => {
     setIsConnecting(true);
     setError(null);
+    setStatus('connecting');
     
     try {
       const response = await whatsAppApiService.initializeConnection();
@@ -59,27 +61,8 @@ export function useWhatsAppConnection(): UseWhatsAppConnectionReturn {
           setStatus('waiting_qr');
           toast.success('QR code generated. Please scan with WhatsApp.');
           
-          // Start polling for authentication
-          const pollInterval = setInterval(async () => {
-            const statusResponse = await whatsAppApiService.getConnectionStatus();
-            if (statusResponse.success && statusResponse.data?.connected) {
-              setStatus('connected');
-              setQrCode(null);
-              setIsConnecting(false);
-              clearInterval(pollInterval);
-              toast.success('WhatsApp connected successfully!');
-            }
-          }, 2000);
-          
-          // Stop polling after 2 minutes
-          setTimeout(() => {
-            clearInterval(pollInterval);
-            if (status === 'waiting_qr') {
-              setIsConnecting(false);
-              setError('QR code scan timeout');
-              toast.error('QR code scan timeout. Please try again.');
-            }
-          }, 120000);
+          // Set up SSE for real-time updates
+          setupQrStream();
           
         } else if (response.data.status === 'authenticated') {
           setStatus('connected');
@@ -99,10 +82,112 @@ export function useWhatsAppConnection(): UseWhatsAppConnectionReturn {
     } finally {
       setIsConnecting(false);
     }
-  }, [status]);
+  }, []);
+
+  const setupQrStream = useCallback(() => {
+    // Close existing connection if any
+    if (eventSource) {
+      eventSource.close();
+    }
+    
+    const newEventSource = new EventSource('/api/whatsapp/qr-stream');
+    setEventSource(newEventSource);
+    
+    newEventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        
+        switch (data.type) {
+          case 'qr_code':
+            console.log('Received new QR code via SSE');
+            setQrCode(data.qr);
+            setStatus('waiting_qr');
+            break;
+            
+          case 'state_change':
+            console.log('Received state change via SSE:', data.state);
+            if (data.state === 'authenticated') {
+              setStatus('connected');
+              setQrCode(null);
+              setIsConnecting(false);
+              newEventSource.close();
+              setEventSource(null);
+              toast.success('WhatsApp connected successfully!');
+            } else if (data.state === 'disconnected') {
+              setStatus('disconnected');
+              setQrCode(null);
+              setIsConnecting(false);
+              newEventSource.close();
+              setEventSource(null);
+            }
+            break;
+            
+          case 'authenticated':
+            console.log('Received authentication via SSE');
+            setStatus('connected');
+            setQrCode(null);
+            setIsConnecting(false);
+            newEventSource.close();
+            setEventSource(null);
+            toast.success('WhatsApp connected successfully!');
+            break;
+            
+          case 'error':
+            console.log('Received error via SSE:', data.error);
+            setError(data.error);
+            setStatus('error');
+            setIsConnecting(false);
+            newEventSource.close();
+            setEventSource(null);
+            toast.error(data.error);
+            break;
+            
+          case 'heartbeat':
+            // Keep connection alive
+            break;
+        }
+      } catch (err) {
+        console.error('Error parsing SSE message:', err);
+      }
+    };
+    
+    newEventSource.onerror = (error) => {
+      console.error('SSE connection error:', error);
+      newEventSource.close();
+      setEventSource(null);
+      
+      // Fallback to polling if SSE fails
+      const pollInterval = setInterval(async () => {
+        const statusResponse = await whatsAppApiService.getConnectionStatus();
+        if (statusResponse.success && statusResponse.data?.connected) {
+          setStatus('connected');
+          setQrCode(null);
+          setIsConnecting(false);
+          clearInterval(pollInterval);
+          toast.success('WhatsApp connected successfully!');
+        }
+      }, 3000);
+      
+      // Stop polling after 2 minutes
+      setTimeout(() => {
+        clearInterval(pollInterval);
+        if (status === 'waiting_qr') {
+          setIsConnecting(false);
+          setError('Connection timeout');
+          toast.error('Connection timeout. Please try again.');
+        }
+      }, 120000);
+    };
+  }, [eventSource, status]);
 
   const disconnect = useCallback(async () => {
     try {
+      // Close SSE connection if active
+      if (eventSource) {
+        eventSource.close();
+        setEventSource(null);
+      }
+      
       const response = await whatsAppApiService.disconnectSession();
       
       if (response.success) {
@@ -118,7 +203,7 @@ export function useWhatsAppConnection(): UseWhatsAppConnectionReturn {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       toast.error(errorMessage);
     }
-  }, []);
+  }, [eventSource]);
 
   useEffect(() => {
     refreshStatus();
@@ -132,8 +217,12 @@ export function useWhatsAppConnection(): UseWhatsAppConnectionReturn {
 
     return () => {
       clearInterval(statusInterval);
+      // Clean up SSE connection on unmount
+      if (eventSource) {
+        eventSource.close();
+      }
     };
-  }, [refreshStatus, status]);
+  }, [refreshStatus, status, eventSource]);
 
   return {
     status,
