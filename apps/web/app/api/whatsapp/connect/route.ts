@@ -12,9 +12,12 @@ import { getClient, setClient, removeClient, hasClient } from '../clients';
 
 export async function POST(request: NextRequest) {
   try {
+    console.log('WhatsApp connect route called');
+    
     // Get authenticated user
     const userResult = await requireUser(getSupabaseServerClient());
     if (userResult.error) {
+      console.log('Authentication failed:', userResult.error);
       return NextResponse.json({
         success: false,
         error: 'authentication_required',
@@ -22,6 +25,7 @@ export async function POST(request: NextRequest) {
       }, { status: 401 });
     }
     const userId = userResult.data.id;
+    console.log('User authenticated:', userId);
 
     // Check if client already exists
     if (hasClient(userId)) {
@@ -104,8 +108,11 @@ export async function POST(request: NextRequest) {
     });
 
     // Initialize and connect
+    console.log('Initializing WhatsApp client...');
     await client.initialize();
+    console.log('WhatsApp client initialized, connecting...');
     await client.connect();
+    console.log('WhatsApp client connect called, waiting for QR or auth...');
 
     // Wait for QR code or authentication
     try {
@@ -126,17 +133,21 @@ export async function POST(request: NextRequest) {
         });
       }
     } catch (error) {
+      console.error('Error waiting for QR or auth:', error);
+      
       // Clean up on error
       await client.cleanup();
       removeClient(userId);
       
       if (error instanceof WhatsAppAuthError) {
+        console.error('WhatsApp auth error:', error.code, error.message);
         return NextResponse.json({
           success: false,
           error: 'authentication_failed',
           message: `Authentication failed: ${error.code}`
         }, { status: 400 });
       } else if (error instanceof WhatsAppConnectionError) {
+        console.error('WhatsApp connection error:', error.code, error.message);
         return NextResponse.json({
           success: false,
           error: 'connection_failed',
@@ -144,6 +155,7 @@ export async function POST(request: NextRequest) {
           recoverable: error.recoverable
         }, { status: 400 });
       } else {
+        console.error('Unknown WhatsApp error:', error);
         return NextResponse.json({
           success: false,
           error: 'unknown_error',

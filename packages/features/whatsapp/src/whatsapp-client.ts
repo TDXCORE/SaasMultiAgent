@@ -61,8 +61,10 @@ export class WhatsAppClient {
       
       // Import and create real WhatsApp client
       try {
+        console.log('Attempting to import whatsapp-web.js...');
         // Import whatsapp-web.js dynamically using eval to avoid TypeScript compile-time checks
         const whatsappModule = await eval('import("whatsapp-web.js")');
+        console.log('whatsapp-web.js imported successfully');
         const WhatsAppClient = whatsappModule.Client;
         
         // Create compatible auth strategy for whatsapp-web.js
@@ -79,6 +81,7 @@ export class WhatsAppClient {
           waAuthStrategy = null;
         }
 
+        console.log('Creating WhatsApp client with auth strategy:', waAuthStrategy ? 'LocalAuth' : 'none');
         this.client = new WhatsAppClient({
           authStrategy: waAuthStrategy,
           puppeteer: this.config.puppeteer || {
@@ -395,7 +398,8 @@ export class WhatsAppClient {
     if (!this.client) return;
 
     this.client.on('qr', (qr: string) => {
-      console.log('QR Code received');
+      console.log('QR Code received from WhatsApp client, length:', qr.length);
+      console.log('QR Code preview:', qr.substring(0, 50) + '...');
       this.stateManager.setState('waiting_qr');
       
       // Emit the qr_generated event that the connect route expects
@@ -406,6 +410,8 @@ export class WhatsAppClient {
         timestamp: Date.now(),
         data: { qr }
       };
+      
+      console.log('Notifying', this.eventListeners.size, 'event listeners about QR code');
       
       // Notify all event listeners
       this.eventListeners.forEach(callback => {
